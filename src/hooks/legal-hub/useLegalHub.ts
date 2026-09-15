@@ -199,12 +199,16 @@ export interface SourceFreshness {
 
 /* ------------------------------------------------------------------ reads */
 
-async function readAll<T>(view: string, select: string, order?: { column: string; ascending?: boolean }): Promise<T[]> {
-  let q = db.from(view).select(select);
-  if (order) q = q.order(order.column, { ascending: order.ascending ?? true, nullsFirst: false });
+/**
+ * Collects a prepared query. The relation name is written as a LITERAL at every
+ * call site, so the ecosystem's real-data guard can verify
+ * statically that every read targets a real measured view — a variable name
+ * would silently defeat it.
+ */
+async function collect<T>(q: PromiseLike<{ data: unknown; error: { message: string } | null }>, label: string): Promise<T[]> {
   const { data, error } = await q;
-  if (error) throw new Error(`${view} : ${error.message}`);
-  return (data ?? []) as T[];
+  if (error) throw new Error(`${label} : ${error.message}`);
+  return ((data ?? []) as T[]);
 }
 
 export function useLegalOverview() {
@@ -224,11 +228,7 @@ export function useLegalRequirements() {
     queryKey: ['legal', 'requirements'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<LegalRequirement>(
-        'v_legal_requirements',
-        'requirement_key,jurisdiction,regime,category,title,obligation,audience,legal_basis,authority,source_url,source_name,severity,review_status,review_due,effective_from,penalties,applies_to_sections,applies_to_categories,source_checked_at,source_changed_at,source_moved_since_review,review_overdue,is_mandatory,implementation_status,updated_at',
-        { column: 'jurisdiction' }
-      ),
+      collect<LegalRequirement>(db.from('v_legal_requirements').select('requirement_key,jurisdiction,regime,category,title,obligation,audience,legal_basis,authority,source_url,source_name,severity,review_status,review_due,effective_from,penalties,applies_to_sections,applies_to_categories,source_checked_at,source_changed_at,source_moved_since_review,review_overdue,is_mandatory,implementation_status,updated_at').order('jurisdiction', { ascending: true, nullsFirst: false }), 'v_legal_requirements'),
   });
 }
 
@@ -237,11 +237,7 @@ export function useLegalCountryMatrix() {
     queryKey: ['legal', 'country-matrix'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<LegalCountryRow>(
-        'v_legal_country_matrix',
-        'country_code,country_name,eu_member,requirements_total,confirmed,draft,blocking,overdue,national,from_eu,last_source_check',
-        { column: 'requirements_total', ascending: false }
-      ),
+      collect<LegalCountryRow>(db.from('v_legal_country_matrix').select('country_code,country_name,eu_member,requirements_total,confirmed,draft,blocking,overdue,national,from_eu,last_source_check').order('requirements_total', { ascending: false, nullsFirst: false }), 'v_legal_country_matrix'),
   });
 }
 
@@ -250,11 +246,7 @@ export function useLegalVerticalCoverage() {
     queryKey: ['legal', 'vertical-coverage'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<LegalVerticalRow>(
-        'v_legal_vertical_coverage',
-        'category_slug,category_name,section_slug,section_name,requirements_total,blocking,specific_to_category,transversal',
-        { column: 'requirements_total', ascending: false }
-      ),
+      collect<LegalVerticalRow>(db.from('v_legal_vertical_coverage').select('category_slug,category_name,section_slug,section_name,requirements_total,blocking,specific_to_category,transversal').order('requirements_total', { ascending: false, nullsFirst: false }), 'v_legal_vertical_coverage'),
   });
 }
 
@@ -263,11 +255,7 @@ export function useProcessingRegister() {
     queryKey: ['legal', 'processing-register'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<ProcessingActivity>(
-        'v_processing_register',
-        'ref,name,purpose,legal_basis,data_subjects,data_categories,recipients,has_transfers_outside_eu,transfers_outside_eu,retention,security_measures,source_of_truth,reviewed_at',
-        { column: 'ref' }
-      ),
+      collect<ProcessingActivity>(db.from('v_processing_register').select('ref,name,purpose,legal_basis,data_subjects,data_categories,recipients,has_transfers_outside_eu,transfers_outside_eu,retention,security_measures,source_of_truth,reviewed_at').order('ref', { ascending: true, nullsFirst: false }), 'v_processing_register'),
   });
 }
 
@@ -276,11 +264,7 @@ export function useContentRestrictions() {
     queryKey: ['legal', 'content-restrictions'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<ContentRestriction>(
-        'v_legal_content_restrictions',
-        'restriction_key,country_code,subject,label,restricts,authority,legal_basis,source_url,severity,review_status,reviewed_by,reviewed_at,review_due,is_active,notes,terms_by_language,exempt_categories,review_overdue',
-        { column: 'country_code' }
-      ),
+      collect<ContentRestriction>(db.from('v_legal_content_restrictions').select('restriction_key,country_code,subject,label,restricts,authority,legal_basis,source_url,severity,review_status,reviewed_by,reviewed_at,review_due,is_active,notes,terms_by_language,exempt_categories,review_overdue').order('country_code', { ascending: true, nullsFirst: false }), 'v_legal_content_restrictions'),
   });
 }
 
@@ -289,11 +273,7 @@ export function useRestrictionsDueReview() {
     queryKey: ['legal', 'restrictions-due-review'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<RestrictionDueReview>(
-        'v_legal_restrictions_due_review',
-        'id,restriction_key,country_code,subject,label,review_status,reviewed_by,reviewed_at,review_due,source_url,source_checked_at,source_changed_at,maintained_by,last_sync_note,needs_attention,priority',
-        { column: 'priority' }
-      ),
+      collect<RestrictionDueReview>(db.from('v_legal_restrictions_due_review').select('id,restriction_key,country_code,subject,label,review_status,reviewed_by,reviewed_at,review_due,source_url,source_checked_at,source_changed_at,maintained_by,last_sync_note,needs_attention,priority').order('priority', { ascending: true, nullsFirst: false }), 'v_legal_restrictions_due_review'),
   });
 }
 
@@ -302,9 +282,12 @@ export function useLegalPages() {
     queryKey: ['legal', 'pages'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<LegalPage>('legal_pages', 'id,slug,language,country_code,title,status,version,effective_at,updated_at', {
-        column: 'slug',
-      }),
+      collect<LegalPage>(
+        db.from('legal_pages')
+          .select('id,slug,language,country_code,title,status,version,effective_at,updated_at')
+          .order('slug', { ascending: true, nullsFirst: false }),
+        'legal_pages'
+      ),
   });
 }
 
@@ -313,11 +296,7 @@ export function useCountryLegalCoverage() {
     queryKey: ['legal', 'country-legal-coverage'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<CountryLegalCoverage>(
-        'v_geo_country_legal_coverage',
-        'country_code,unlocked,default_language,localized,fallback_generic,missing,legal_not_localized,covered,legal_localized,regulatory_requirements,compliance_documents,last_localized_update',
-        { column: 'country_code' }
-      ),
+      collect<CountryLegalCoverage>(db.from('v_geo_country_legal_coverage').select('country_code,unlocked,default_language,localized,fallback_generic,missing,legal_not_localized,covered,legal_localized,regulatory_requirements,compliance_documents,last_localized_update').order('country_code', { ascending: true, nullsFirst: false }), 'v_geo_country_legal_coverage'),
   });
 }
 
@@ -326,11 +305,7 @@ export function useSourceFreshness() {
     queryKey: ['legal', 'source-freshness'],
     staleTime: STALE,
     queryFn: () =>
-      readAll<SourceFreshness>(
-        'v_legal_source_freshness',
-        'source_name,topic,country_codes,poll_hours,is_enabled,last_fetch,http_status,item_count,changed,error,hours_since,stale,requirements_bound',
-        { column: 'hours_since', ascending: false }
-      ),
+      collect<SourceFreshness>(db.from('v_legal_source_freshness').select('source_name,topic,country_codes,poll_hours,is_enabled,last_fetch,http_status,item_count,changed,error,hours_since,stale,requirements_bound').order('hours_since', { ascending: false, nullsFirst: false }), 'v_legal_source_freshness'),
   });
 }
 
